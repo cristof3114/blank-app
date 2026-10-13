@@ -171,6 +171,7 @@ input[type="search"]:focus { outline: 2px solid var(--accent); outline-offset: 1
 .filters .lbl { color: var(--muted); font-size: .8rem; white-space: nowrap; margin-right: 2px; }
 
 .str { font-size: .85rem; color: var(--muted); margin-top: 2px; }
+.str b { color: var(--text); font-weight: 600; }
 .dots { letter-spacing: 1px; color: var(--accent); }
 .dots.l1 { color: #8fd18f; }
 .dots.l2 { color: #bfd36a; }

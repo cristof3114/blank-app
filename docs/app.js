@@ -317,7 +317,8 @@
         <div class="body">
           <h3>${r.name}</h3>
           <p class="taste">${r.taste}</p>
-          <p class="str" title="${st.label} : ${fmtStd(st.std)} verre standard"><span class="dots l${st.level}">${dots(st.level)}</span> ${st.label} · ${Math.round(st.abv)} %</p>
+          <p class="str"><span class="dots l${st.level}">${dots(st.level)}</span> <b>${st.label}</b></p>
+          <p class="str">${Math.round(st.abv)} % vol · <b>${fmtStd(st.std)}</b> verre${st.std >= 2 ? "s" : ""} standard</p>
           ${missing.length
             ? `<div class="chips small"><span class="lbl">Manque :</span>${miss}</div>`
             : `<span class="badge ok">✓ Prêt à préparer</span>`}
