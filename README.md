@@ -23,10 +23,15 @@ A simple Streamlit app template for you to modify!
 ## 🍸 Shaker – l'appli cocktails (dossier `docs/`)
 
 Application web installable (PWA) pensée pour téléphone : tu coches les bouteilles
-de ton bar, elle te propose les cocktails **au shaker** réalisables, ceux auxquels
-il ne manque qu'un ou deux ingrédients, ce qu'il faut acheter pour en débloquer
-le plus, puis un **pas à pas** (avec chrono de shake) une fois le cocktail choisi.
-Elle fonctionne hors ligne et mémorise ton inventaire sur le téléphone.
+de ton bar, elle te propose parmi **79 cocktails** (shaker, mélangés comme le Negroni,
+ou directement dans le verre) ceux réalisables, ceux auxquels il ne manque qu'un ou
+deux ingrédients, et ce qu'il faut acheter pour en débloquer le plus.
+
+- **Puissance** : chaque cocktail affiche un niveau (Léger → Très fort), son degré
+  estimé et son nombre de verres standard. Un réglage **Léger / Normal / Fort**
+  ajuste les doses d'alcool (×0,6 / ×1 / ×1,4), et tout est recalculé.
+- **Pas à pas** adapté à la méthode (avec chronos de shake et de mélange).
+- Fonctionne hors ligne et mémorise ton inventaire sur le téléphone.
 
 ### Mise en ligne (GitHub Pages)
 

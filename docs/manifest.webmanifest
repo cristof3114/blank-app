@@ -1,7 +1,7 @@
 {
   "name": "Shaker – Cocktails de mon bar",
   "short_name": "Shaker",
-  "description": "Des cocktails au shaker selon les bouteilles de ton bar, avec un pas à pas.",
+  "description": "Des cocktails selon les bouteilles de ton bar, avec leur puissance et un pas à pas.",
   "lang": "fr",
   "start_url": "./index.html",
   "scope": "./",

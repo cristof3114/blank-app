@@ -20,6 +20,9 @@
     owned: new Set(store.get("cb_owned", [])),
     tab: store.get("cb_tab", "bar"),
     filter: "ready",
+    sFilter: "all", // puissance : all | light | mid | strong
+    mFilter: "all", // méthode : all | shaker | stir | build
+    dose: ["light", "normal", "strong"].includes(store.get("cb_dose", "normal")) ? store.get("cb_dose", "normal") : "normal",
     q: "",
     barQ: "",
     servings: 1,
@@ -65,82 +68,169 @@
   /* ---------- Formatage ---------- */
   const fmtNum = (n) => (Math.round(n * 2) / 2).toString().replace(".", ",");
   const plural = (u, q) => (q > 1 ? u + "s" : u);
-  function amount(i, n) {
-    if (i.ml != null) return `${fmtNum(i.ml * n)} ml`;
+
+  /* Dosage : multiplie les alcools (≥ 15 % vol) ; les mixers ne changent pas */
+  const DOSES = {
+    light: { label: "Léger", factor: 0.6 },
+    normal: { label: "Normal", factor: 1 },
+    strong: { label: "Fort", factor: 1.4 },
+  };
+  const doseFactor = () => DOSES[state.dose].factor;
+  const abvOf = (i) => (ING[i.id] && ING[i.id].abv) || 0;
+  const scalable = (i) => abvOf(i) >= 15;
+  const mlOf = (i, n, f) => i.ml * n * (scalable(i) ? f : 1);
+
+  function amount(i, n, f) {
+    if (i.ml != null) return `${fmtNum(mlOf(i, n, f))} ml`;
     const q = i.qty * n;
     return `${fmtNum(q)} ${plural(i.unit, q)}`;
   }
+
+  /* Puissance d'un verre : % vol final estimé, verres standard (10 g d'alcool pur ≈ 12,7 ml) */
+  const DILUTION = { shaker: 0.25, stir: 0.2, build: 0.1 };
+  const LEVELS = [
+    { max: 0.8, label: "Léger" },
+    { max: 1.3, label: "Doux" },
+    { max: 1.8, label: "Moyen" },
+    { max: 2.3, label: "Fort" },
+    { max: Infinity, label: "Très fort" },
+  ];
+
+  function strength(r, f = doseFactor()) {
+    let alc = 0, mixed = 0, topped = 0;
+    for (const i of r.ing) {
+      if (i.ml == null || (i.opt && !isOwned(i))) continue;
+      const ml = mlOf(i, 1, f);
+      alc += (ml * abvOf(i)) / 100;
+      if (i.top) topped += ml; else mixed += ml;
+    }
+    const total = mixed * (1 + DILUTION[r.method || "shaker"]) + topped;
+    const std = alc / 12.7;
+    const level = LEVELS.findIndex((l) => std < l.max);
+    return { abv: total ? (alc / total) * 100 : 0, std, level: level + 1, label: LEVELS[level].label };
+  }
+
+  const dots = (level) => "●".repeat(level) + "○".repeat(5 - level);
+  const fmtStd = (s) => s.toFixed(1).replace(".", ",");
+
+  const METHODS = {
+    shaker: { label: "Shaker", emoji: "💪" },
+    stir: { label: "Mélangé", emoji: "🥄" },
+    build: { label: "Dans le verre", emoji: "🥃" },
+  };
 
   const SERVE = {
     coupe: { glass: "coupe", prep: "Mets une <b>coupe</b> au congélateur (ou remplis-la de glaçons et d'eau) pour qu'elle soit bien froide." },
     rocks: { glass: "verre old fashioned", prep: "Prends un <b>verre old fashioned</b> et remplis-le de glaçons." },
     tall: { glass: "grand verre", prep: "Prends un <b>grand verre</b> et remplis-le de glaçons." },
     flute: { glass: "flûte", prep: "Mets une <b>flûte</b> au congélateur (ou remplis-la de glaçons et d'eau) pour qu'elle soit bien froide." },
+    wine: { glass: "verre à vin", prep: "Prends un <b>grand verre à vin</b> (ou un ballon) et remplis-le de glaçons." },
   };
 
   /* ---------- Génération du pas à pas ---------- */
   function buildSteps(r, n) {
+    const f = doseFactor();
     const serve = SERVE[r.serve];
+    const method = r.method || "shaker";
+    const amt = (i) => amount(i, n, f);
+    const lower = (id) => ING[id].name.toLowerCase();
+    const row = (i) => ({ a: amt(i), name: ING[i.id].name });
+
     const included = r.ing.filter((i) => !i.opt || isOwned(i));
-    const shaken = included.filter((i) => !i.top && !i.float);
+    const muddled = included.filter((i) => (r.muddle || []).includes(i.id));
+    const body = included.filter((i) => !i.top && !i.float && !muddled.includes(i));
     const tops = included.filter((i) => i.top);
     const floats = included.filter((i) => i.float);
-    const hasEgg = shaken.some((i) => i.id === "blanc_oeuf");
+    const hasEgg = body.some((i) => i.id === "blanc_oeuf");
     const shakeTime = r.shake || 12;
+    const dry = r.serve === "coupe" || r.serve === "flute" || r.noIce;
     const steps = [];
+    const st = strength(r);
 
-    steps.push({ icon: "🥶", title: "Prépare le verre", html: serve.prep });
+    /* Verre */
+    if (r.noIce || (method === "build" && muddled.length)) {
+      steps.push({ icon: "🥶", title: "Prépare le verre", html: `Prends un <b>${serve.glass}</b>${r.noIce ? " (sans glaçons)" : ""}.` });
+    } else {
+      steps.push({ icon: "🥶", title: "Prépare le verre", html: serve.prep });
+    }
     (r.pre || []).forEach((t) => steps.push({ icon: "🛠️", title: "Préparation", html: t }));
 
-    steps.push({
-      icon: "🥄",
-      title: "Mesure dans le shaker",
-      html: "Verse dans le shaker, avec un verre doseur :",
-      list: shaken.map((i) => ({ a: amount(i, n), name: ingName(i.id) })),
-    });
-
-    if (hasEgg) {
+    if (method === "shaker") {
+      steps.push({ icon: "🥄", title: "Mesure dans le shaker", html: "Verse dans le shaker, avec un verre doseur :", list: body.map(row) });
+      if (hasEgg) {
+        steps.push({ icon: "🥚", title: "Dry shake", html: "Ferme le shaker <b>sans glaçons</b> et secoue fort pour faire mousser le blanc d'œuf.", timer: 10 });
+      }
       steps.push({
-        icon: "🥚",
-        title: "Dry shake",
-        html: "Ferme le shaker <b>sans glaçons</b> et secoue fort pour faire mousser le blanc d'œuf.",
-        timer: 10,
+        icon: "🧊", title: "Ajoute la glace",
+        html: "Remplis le shaker de glaçons aux trois quarts, puis ferme-le bien." +
+          (n > 2 ? "<br><i>Un shaker contient 2 cocktails au maximum : fais-les en plusieurs fois.</i>" : ""),
       });
+      steps.push({
+        icon: "💪", title: "Shake !",
+        html: `Secoue énergiquement pendant <b>${shakeTime} secondes</b>, jusqu'à ce que le shaker soit givré.`,
+        timer: shakeTime,
+      });
+      steps.push({
+        icon: "🍸", title: "Sers",
+        html: dry
+          ? "Filtre le cocktail dans le verre, <b>sans glaçons</b> (passoire du shaker + petite passoire pour un double filtrage)."
+          : "Filtre le cocktail dans le verre, <b>sur les glaçons</b>.",
+      });
+    } else if (method === "stir") {
+      steps.push({ icon: "🥄", title: "Mesure", html: "Verse dans un verre à mélange (ou un grand verre), avec un verre doseur :", list: body.map(row) });
+      steps.push({ icon: "🧊", title: "Ajoute la glace", html: "Remplis le verre à mélange de glaçons jusqu'en haut." });
+      steps.push({
+        icon: "🌀", title: "Mélange",
+        html: "Remue avec une cuillère à long manche, en la faisant tourner contre la paroi, pendant <b>25 secondes</b>. Le verre doit être givré.",
+        timer: 25,
+      });
+      steps.push({
+        icon: "🍸", title: "Sers",
+        html: dry
+          ? "Filtre le cocktail dans le verre, <b>sans glaçons</b>."
+          : "Filtre le cocktail dans le verre, <b>sur les glaçons</b>.",
+      });
+    } else {
+      if (muddled.length) {
+        steps.push({
+          icon: "🌿", title: "Écrase",
+          html: "Dans le verre, écrase doucement avec un pilon ou le manche d'une cuillère :",
+          list: muddled.map(row),
+        });
+        if (!r.noIce) steps.push({ icon: "🧊", title: "Ajoute la glace", html: "Remplis le verre de glaçons (pilés si possible)." });
+      }
+      if (body.length) {
+        steps.push({ icon: "🥄", title: "Verse", html: "Verse directement dans le verre :", list: body.map(row) });
+      }
     }
 
-    steps.push({
-      icon: "🧊",
-      title: "Ajoute la glace",
-      html: "Remplis le shaker de glaçons aux trois quarts, puis ferme-le bien." +
-        (n > 2 ? "<br><i>Un shaker contient 2 cocktails au maximum : fais-les en plusieurs fois.</i>" : ""),
-    });
-
-    steps.push({
-      icon: "💪",
-      title: "Shake !",
-      html: `Secoue énergiquement pendant <b>${shakeTime} secondes</b>, jusqu'à ce que le shaker soit givré.`,
-      timer: shakeTime,
-    });
-
-    const strain = r.serve === "coupe" || r.serve === "flute"
-      ? "Filtre le cocktail dans le verre, <b>sans glaçons</b> (passoire du shaker + petite passoire pour un double filtrage)."
-      : "Filtre le cocktail dans le verre, <b>sur les glaçons</b>.";
-    steps.push({ icon: "🍸", title: "Sers", html: strain });
-
-    floats.forEach((i) => steps.push({
-      icon: "🫗",
-      title: "Finition",
-      html: `Verse délicatement <b>${amount(i, n)} de ${ingName(i.id).toLowerCase()}</b> sur le dessus, sans mélanger.`,
-    }));
+    /* Finitions communes */
     tops.forEach((i) => steps.push({
-      icon: "🫧",
-      title: "Complète",
-      html: `Complète avec environ <b>${amount(i, n)}</b> de ${ingName(i.id).toLowerCase()}.`,
+      icon: "🫧", title: "Complète",
+      html: `Complète avec environ <b>${amt(i)}</b> de ${lower(i.id)}.`,
+    }));
+    if (method === "build") {
+      steps.push({ icon: "🌀", title: "Mélange", html: "Remue délicatement avec une cuillère, une ou deux fois, sans casser les bulles.", timer: 8 });
+    }
+    floats.forEach((i) => steps.push({
+      icon: "🫗", title: "Finition",
+      html: `Verse délicatement <b>${amt(i)} de ${lower(i.id)}</b> sur le dessus, sans mélanger.`,
     }));
 
+    if (f !== 1) {
+      steps.push({
+        icon: f < 1 ? "🍃" : "🔥", title: f < 1 ? "Version légère" : "Version forte",
+        html: f < 1
+          ? "Les alcools sont réduits : tu peux compléter avec un peu d'eau gazeuse ou laisser la glace fondre pour un verre plus long."
+          : "Les alcools sont augmentés : goûte avant de boire, l'équilibre est plus alcoolisé.",
+      });
+    }
     if (r.note) steps.push({ icon: "💡", title: "Astuce", html: r.note });
-    steps.push({ icon: "🌿", title: "Décore", html: r.garnish });
-    steps.push({ icon: "🥂", title: "Santé !", html: `Ton <b>${r.name}</b> est prêt. À consommer avec modération.` });
+    if (r.garnish && !/^Aucune/.test(r.garnish)) steps.push({ icon: "🌿", title: "Décore", html: r.garnish });
+    steps.push({
+      icon: "🥂", title: "Santé !",
+      html: `Ton <b>${r.name}</b> est prêt.<br><small>≈ ${Math.round(st.abv)} % vol · ${fmtStd(st.std)} verre standard par verre.</small>`,
+    });
     return steps;
   }
 
@@ -169,11 +259,22 @@
 
   /* ---------- Rendu : Cocktails ---------- */
   function renderFilters(counts) {
-    const defs = [["ready", "Prêts"], ["m1", "Il manque 1"], ["m2", "Il manque 2"], ["all", "Tous"]];
-    $("#filters").innerHTML = defs.map(([k, label]) =>
-      `<button class="chip${state.filter === k ? " on" : ""}" data-act="filter" data-k="${k}">${label} <small>${counts[k]}</small></button>`
-    ).join("");
+    const chip = (act, key, cur, label, n) =>
+      `<button class="chip${cur === key ? " on" : ""}" data-act="${act}" data-k="${key}">${label}${n != null ? ` <small>${n}</small>` : ""}</button>`;
+    $("#filters").innerHTML =
+      [["ready", "Prêts"], ["m1", "Il manque 1"], ["m2", "Il manque 2"], ["all", "Tous"]]
+        .map(([k, l]) => chip("filter", k, state.filter, l, counts[k])).join("");
+    $("#filters2").innerHTML =
+      `<span class="lbl">Puissance</span>` +
+      [["all", "Toutes"], ["light", "Légers"], ["mid", "Moyens"], ["strong", "Forts"]]
+        .map(([k, l]) => chip("sfilter", k, state.sFilter, l)).join("");
+    $("#filters3").innerHTML =
+      `<span class="lbl">Méthode</span>` +
+      [["all", "Toutes"], ["shaker", "💪 Shaker"], ["stir", "🥄 Mélangé"], ["build", "🥃 Dans le verre"]]
+        .map(([k, l]) => chip("mfilter", k, state.mFilter, l)).join("");
   }
+
+  const strengthGroup = (lvl) => (lvl <= 2 ? "light" : lvl === 3 ? "mid" : "strong");
 
   function renderCocktails() {
     const all = RECIPES.map((r) => analyze(r));
@@ -188,6 +289,8 @@
     const q = state.q.trim().toLowerCase();
     let list = all.filter((a) => {
       if (q && !(a.r.name.toLowerCase().includes(q) || a.r.ing.some((i) => ingName(i.id).toLowerCase().includes(q)))) return false;
+      if (state.mFilter !== "all" && (a.r.method || "shaker") !== state.mFilter) return false;
+      if (state.sFilter !== "all" && strengthGroup(strength(a.r).level) !== state.sFilter) return false;
       if (state.filter === "ready") return a.missing.length === 0;
       if (state.filter === "m1") return a.missing.length === 1;
       if (state.filter === "m2") return a.missing.length === 2;
@@ -208,14 +311,16 @@
     $("#cList").innerHTML = list.map(({ r, missing }) => {
       const miss = missing.map((m) =>
         `<button class="chip add" data-act="addIng" data-id="${m.id}" title="J'en ai">＋ ${ingName(m.id)}</button>`).join("");
+      const st = strength(r);
       return `<article class="card" data-act="open" data-id="${r.id}" tabindex="0" role="button">
         <div class="emoji">${r.emoji}</div>
         <div class="body">
           <h3>${r.name}</h3>
           <p class="taste">${r.taste}</p>
+          <p class="str" title="${st.label} : ${fmtStd(st.std)} verre standard"><span class="dots l${st.level}">${dots(st.level)}</span> ${st.label} · ${Math.round(st.abv)} %</p>
           ${missing.length
             ? `<div class="chips small"><span class="lbl">Manque :</span>${miss}</div>`
-            : `<span class="badge ok">✓ Prêt à shaker</span>`}
+            : `<span class="badge ok">✓ Prêt à préparer</span>`}
         </div>
       </article>`;
     }).join("");
@@ -262,13 +367,15 @@
     if (!r) { el.hidden = true; return; }
     const n = state.servings;
     const { missing } = analyze(r);
+    const st = strength(r);
+    const m = METHODS[r.method || "shaker"];
     const rows = r.ing.map((i) => {
       const have = isOwned(i);
       const alt = (i.alt || []).length ? `<small>ou ${i.alt.map(ingName).join(" / ").toLowerCase()}</small>` : "";
       const tag = i.opt ? `<small>optionnel</small>` : i.top ? `<small>à compléter</small>` : i.float ? `<small>sur le dessus</small>` : "";
       return `<li class="${have ? "have" : i.opt ? "optional" : "need"}">
         <span class="mark">${have ? "✓" : i.opt ? "·" : "✗"}</span>
-        <span class="amt">${amount(i, n)}</span>
+        <span class="amt">${amount(i, n, doseFactor())}</span>
         <span class="nm">${ingName(i.id)} ${alt} ${tag}</span>
       </li>`;
     }).join("");
@@ -281,7 +388,15 @@
       <div class="ov-body">
         <p class="taste">${r.taste}</p>
         <p>${r.desc}</p>
-        <div class="meta"><span>${r.emoji} Servi en ${SERVE[r.serve].glass}</span><span>💪 Shaker</span></div>
+        <div class="meta"><span>${r.emoji} Servi en ${SERVE[r.serve].glass}</span><span>${m.emoji} ${m.label}</span></div>
+        <div class="strength">
+          <div class="srow"><b>Puissance</b><span class="dots l${st.level}">${dots(st.level)}</span><span class="lvl">${st.label}</span></div>
+          <p>≈ <b>${Math.round(st.abv)} % vol</b> · <b>${fmtStd(st.std)}</b> verre${st.std >= 2 ? "s" : ""} standard par verre</p>
+          <div class="seg" role="group" aria-label="Dosage">
+            ${Object.entries(DOSES).map(([k, d]) =>
+              `<button class="${state.dose === k ? "on" : ""}" data-act="dose" data-k="${k}">${d.label}<small>alcool ×${String(d.factor).replace(".", ",")}</small></button>`).join("")}
+          </div>
+        </div>
         <div class="stepper" aria-label="Nombre de verres">
           <button data-act="serv" data-d="-1" ${n <= 1 ? "disabled" : ""} aria-label="Moins">−</button>
           <span><b>${n}</b> verre${n > 1 ? "s" : ""}</span>
@@ -291,7 +406,7 @@
         ${missing.length
           ? `<div class="warn">Il te manque : ${missing.map((m) => `<button class="chip add" data-act="addIng" data-id="${m.id}">＋ ${ingName(m.id)}</button>`).join(" ")}</div>`
           : ""}
-        <p class="tip">🥄 Sans doseur : 1 cl ≈ 2 cuillères à café ≈ 10 ml.</p>
+        <p class="tip">🥄 Sans doseur : 1 cl ≈ 2 cuillères à café ≈ 10 ml.<br>Un verre standard contient 10 g d'alcool pur (≈ 25 cl de bière, 10 cl de vin, 3 cl de spiritueux).</p>
       </div>
       <footer class="ov-foot">
         <button class="btn big" data-act="start">▶ Commencer le pas à pas</button>
@@ -426,6 +541,19 @@
       case "filter":
         state.filter = t.dataset.k;
         renderCocktails();
+        break;
+      case "sfilter":
+        state.sFilter = t.dataset.k;
+        renderCocktails();
+        break;
+      case "mfilter":
+        state.mFilter = t.dataset.k;
+        renderCocktails();
+        break;
+      case "dose":
+        state.dose = t.dataset.k;
+        store.set("cb_dose", state.dose);
+        renderDetail();
         break;
       case "open":
         state.servings = 1;

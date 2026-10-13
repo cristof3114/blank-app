@@ -1,5 +1,5 @@
 // Service worker : met l'appli en cache pour qu'elle fonctionne hors ligne.
-const VERSION = "shaker-v1";
+const VERSION = "shaker-v2";
 const FILES = [
   "./",
   "./index.html",
