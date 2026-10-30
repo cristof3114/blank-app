@@ -1,10 +1,16 @@
 name: Release
 
 # Crée une Release GitHub (avec l'appli en .zip) à chaque étiquette de version : v1.0.0, v1.1.0…
+# Si la Release existe déjà (créée à la main sur le site), le .zip y est simplement ajouté.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Étiquette de version à publier (ex. v1.0.0)"
+        required: true
 
 permissions:
   contents: write
@@ -16,14 +22,22 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Empaqueter l'application
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           cd docs
-          zip -r "../shaker-${GITHUB_REF_NAME}.zip" . -x "screenshots/*"
+          zip -r "../shaker-${TAG}.zip" . -x "screenshots/*"
 
       - name: Publier la release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "shaker-${GITHUB_REF_NAME}.zip" \
-            --title "Shaker ${GITHUB_REF_NAME}" \
-            --notes-file CHANGELOG.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "shaker-${TAG}.zip" --clobber
+          else
+            gh release create "$TAG" "shaker-${TAG}.zip" \
+              --target "$GITHUB_SHA" \
+              --title "Shaker ${TAG}" \
+              --notes-file CHANGELOG.md
+          fi
