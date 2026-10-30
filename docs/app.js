@@ -2,6 +2,7 @@
   const { CATEGORIES, INGREDIENTS, RECIPES } = window.DATA;
   const ING = Object.fromEntries(INGREDIENTS.map((i) => [i.id, i]));
   const $ = (s) => document.querySelector(s);
+  const APP_VERSION = "1.0.0";
 
   /* ---------- Stockage (try/catch : peut être indisponible) ---------- */
   const store = {
@@ -251,6 +252,7 @@
     $("#barList").innerHTML = html || `<p class="empty">Aucun ingrédient trouvé.</p>`;
     const n = state.owned.size;
     const ready = RECIPES.filter((r) => analyze(r).missing.length === 0).length;
+    $("#appVersion").textContent = `Shaker v${APP_VERSION} · ${RECIPES.length} cocktails`;
     $("#barSummary").innerHTML = n
       ? `<b>${n}</b> ingrédient${n > 1 ? "s" : ""} · <b>${ready}</b> cocktail${ready > 1 ? "s" : ""} possible${ready > 1 ? "s" : ""}
          <button class="link" data-act="clear">Tout décocher</button>`
@@ -386,7 +388,7 @@
         <button class="icon-btn" data-act="back" aria-label="Retour">←</button>
         <h1>${r.emoji} ${r.name}</h1>
       </header>
-      <div class="ov-body">
+      <div class="ov-body"><div class="detail-grid"><div class="col-a">
         <p class="taste">${r.taste}</p>
         <p>${r.desc}</p>
         <div class="meta"><span>${r.emoji} Servi en ${SERVE[r.serve].glass}</span><span>${m.emoji} ${m.label}</span></div>
@@ -398,6 +400,7 @@
               `<button class="${state.dose === k ? "on" : ""}" data-act="dose" data-k="${k}">${d.label}<small>alcool ×${String(d.factor).replace(".", ",")}</small></button>`).join("")}
           </div>
         </div>
+        </div><div class="col-b">
         <div class="stepper" aria-label="Nombre de verres">
           <button data-act="serv" data-d="-1" ${n <= 1 ? "disabled" : ""} aria-label="Moins">−</button>
           <span><b>${n}</b> verre${n > 1 ? "s" : ""}</span>
@@ -408,7 +411,7 @@
           ? `<div class="warn">Il te manque : ${missing.map((m) => `<button class="chip add" data-act="addIng" data-id="${m.id}">＋ ${ingName(m.id)}</button>`).join(" ")}</div>`
           : ""}
         <p class="tip">🥄 Sans doseur : 1 cl ≈ 2 cuillères à café ≈ 10 ml.<br>Un verre standard contient 10 g d'alcool pur (≈ 25 cl de bière, 10 cl de vin, 3 cl de spiritueux).</p>
-      </div>
+      </div></div></div>
       <footer class="ov-foot">
         <button class="btn big" data-act="start">▶ Commencer le pas à pas</button>
       </footer>`;
@@ -501,6 +504,31 @@
     renderSteps();
   }
 
+
+  /* ---------- Installation (PWA) ---------- */
+  let installPrompt = null;
+  const isStandalone = () =>
+    window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const isApple = () =>
+    /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+  function renderInstall() {
+    const box = $("#installBox");
+    if (isStandalone() || store.get("cb_install_hidden", false)) { box.hidden = true; return; }
+    const how = installPrompt
+      ? `<button class="btn small" data-act="install">📲 Installer</button>`
+      : isApple()
+        ? `<p>Dans <b>Safari</b> : bouton Partager ⎙ puis <b>Sur l'écran d'accueil</b>.</p>`
+        : `<p>Dans <b>Chrome</b> : menu ⋮ puis <b>Installer l'application</b>.</p>`;
+    box.innerHTML = `<div class="install-text"><b>📲 Installe l'appli</b><p>Elle s'ouvre en plein écran et marche sans connexion.</p>${installPrompt ? "" : how}</div>
+      ${installPrompt ? how : ""}
+      <button class="icon-btn small" data-act="hideInstall" aria-label="Masquer">✕</button>`;
+    box.hidden = false;
+  }
+
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; renderInstall(); });
+  window.addEventListener("appinstalled", () => { installPrompt = null; renderInstall(); });
+
   /* ---------- Onglets ---------- */
   function setTab(t) {
     state.tab = t;
@@ -542,6 +570,16 @@
       case "filter":
         state.filter = t.dataset.k;
         renderCocktails();
+        break;
+      case "install":
+        if (installPrompt) {
+          installPrompt.prompt();
+          installPrompt.userChoice.finally(() => { installPrompt = null; renderInstall(); });
+        }
+        break;
+      case "hideInstall":
+        store.set("cb_install_hidden", true);
+        renderInstall();
         break;
       case "sfilter":
         state.sFilter = t.dataset.k;
@@ -601,6 +639,7 @@
   history.replaceState({}, "");
   if (state.owned.size === 0) state.tab = "bar";
   setTab(state.tab);
+  renderInstall();
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));

@@ -1,0 +1,29 @@
+name: Release
+
+# Crée une Release GitHub (avec l'appli en .zip) à chaque étiquette de version : v1.0.0, v1.1.0…
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Empaqueter l'application
+        run: |
+          cd docs
+          zip -r "../shaker-${GITHUB_REF_NAME}.zip" . -x "screenshots/*"
+
+      - name: Publier la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "shaker-${GITHUB_REF_NAME}.zip" \
+            --title "Shaker ${GITHUB_REF_NAME}" \
+            --notes-file CHANGELOG.md
